@@ -1,1 +1,34 @@
+name: Validate and build Android APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.7.2
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Import and validate project
+        run: godot --headless --editor --path . --quit
+
+      - name: Run scene smoke test
+        run: godot --headless --path . --quit-after 8
+
+      - name: Export Android APK
+        run: |
+          mkdir -p build
+          godot --headless --path . --export-debug "Android" build/football-arena-android.apk
+          test -s build/football-arena-android.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: football-arena-android
+          path: build/football-arena-android.apk
+          if-no-files-found: error
