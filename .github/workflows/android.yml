@@ -97,6 +97,7 @@ jobs:
           grep -F 'textures/vram_compression/import_etc2_astc=true' project.godot
 
       - name: Export and verify signed Android APK
+        shell: bash
         env:
           GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
