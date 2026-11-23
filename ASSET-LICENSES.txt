@@ -1,0 +1,4 @@
+Asset provenance:
+- Player meshes, pitch, goals, stands, UI and materials in this prototype are generated procedurally in main.gd using built-in Godot primitives.
+- No third-party player photos, club crests, team marks, stadium photographs, audio, or commercial asset packs are included.
+- Godot Engine license: MIT. https://godotengine.org/license/
