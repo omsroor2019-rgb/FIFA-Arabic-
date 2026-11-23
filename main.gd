@@ -21,6 +21,8 @@ var menu_overlay: ColorRect
 var score_label: Label
 var clock_label: Label
 var info_label: Label
+var commentary_player: AudioStreamPlayer
+var sfx_player: AudioStreamPlayer
 var joy_ring: Panel
 var joy_center: Vector2 = Vector2.ZERO
 var joy_vector: Vector2 = Vector2.ZERO
@@ -34,6 +36,21 @@ var home_positions: Array[Vector3] = []
 var away_positions: Array[Vector3] = []
 var coins: int = 2000
 var experience: int = 0
+var profile_name: String = "لاعب جديد"
+var profile_name_input: LineEdit
+var splash_active: bool = true
+var splash_time_left: float = 2.4
+var active_match_mode: String = "friendly"
+var matches_played: int = 0
+var career_wins: int = 0
+var career_points: int = 0
+var career_division: int = 8
+var tournament_progress: int = 0
+var daily_matches_done: int = 0
+var daily_goals_done: int = 0
+var daily_reward_claimed: bool = false
+var daily_date: String = ""
+var facilities: Dictionary = {"stadium": 1, "academy": 1, "training": 1}
 var roster: Array = []
 var market_offers: Array = []
 var last_pack_text: String = "لم تفتح بكجاً بعد"
@@ -54,11 +71,19 @@ func _ready() -> void:
     _create_teams()
     _create_ball()
     _create_camera()
+    _create_audio_players()
     _create_ui()
-    _show_menu("home")
+    _show_menu("splash")
+    splash_active = true
+    splash_time_left = 2.4
 
 
 func _process(delta: float) -> void:
+    if splash_active:
+        splash_time_left -= delta
+        if splash_time_left <= 0.0:
+            splash_active = false
+            _show_menu("login")
     if match_state == "match":
         match_elapsed += delta
         if sprint_left > 0.0:
@@ -115,14 +140,14 @@ func _create_environment() -> void:
     environment.background_color = Color(0.012, 0.035, 0.028)
     environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
     environment.ambient_light_color = Color(0.72, 0.82, 0.76)
-    environment.ambient_light_energy = 0.78
+    environment.ambient_light_energy = 1.05
     environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
     world.environment = environment
     add_child(world)
 
     var sun := DirectionalLight3D.new()
     sun.rotation_degrees = Vector3(-52.0, -28.0, 0.0)
-    sun.light_energy = 1.25
+    sun.light_energy = 1.7
     sun.shadow_enabled = true
     add_child(sun)
 
@@ -522,8 +547,8 @@ func _create_ball() -> void:
 func _create_camera() -> void:
     camera_3d = Camera3D.new()
     camera_3d.name = "BroadcastCamera"
-    camera_3d.fov = 56.0
-    camera_3d.position = Vector3(0, 43, 39)
+    camera_3d.fov = 58.0
+    camera_3d.position = Vector3(26.0, 16.5, 0.0)
     camera_3d.current = true
     add_child(camera_3d)
     camera_3d.look_at(Vector3.ZERO, Vector3.UP)
@@ -532,11 +557,11 @@ func _create_camera() -> void:
 func _update_camera(delta: float) -> void:
     if camera_3d == null or ball == null:
         return
-    var focus_x: float = clampf(ball.global_position.x * 0.36, -9.0, 9.0)
-    var focus_z: float = clampf(ball.global_position.z * 0.43, -13.0, 13.0)
-    var focus := Vector3(focus_x, 0.0, focus_z)
-    var desired := focus + Vector3(0, 45.0, 40.0)
-    camera_3d.global_position = camera_3d.global_position.lerp(desired, clampf(delta * 1.8, 0.0, 1.0))
+    var focus_x: float = clampf(ball.global_position.x * 0.10, -1.5, 1.5)
+    var focus_z: float = clampf(ball.global_position.z * 0.55, -16.0, 16.0)
+    var focus := Vector3(focus_x, 0.5, focus_z)
+    var desired := Vector3(26.0, 16.5, focus_z + 0.8)
+    camera_3d.global_position = camera_3d.global_position.lerp(desired, clampf(delta * 2.5, 0.0, 1.0))
     camera_3d.look_at(focus, Vector3.UP)
 
 
@@ -648,14 +673,14 @@ func _update_ball_and_rules(_delta: float) -> void:
     if ball.global_position.z < -FIELD_L * 0.5 - 1.0:
         if absf(ball.global_position.x) < 3.85 and ball.global_position.y < 2.75:
             home_score += 1
-            _show_toast("هدف لفريقك!")
+            _commentary_event("goal_home", "جوووول! هدف رائع لفريقك!")
         else:
             _show_toast("الكرة خارج الملعب")
         _reset_ball()
     elif ball.global_position.z > FIELD_L * 0.5 + 1.0:
         if absf(ball.global_position.x) < 3.85 and ball.global_position.y < 2.75:
             away_score += 1
-            _show_toast("هدف للفريق المنافس")
+            _commentary_event("goal_away", "هدف للفريق المنافس!")
         else:
             _show_toast("الكرة خارج الملعب")
         _reset_ball()
@@ -681,6 +706,8 @@ func _shoot_ball() -> void:
         direction.x = clampf(-ball.global_position.x * 0.035, -0.28, 0.28)
     var shooter_factor: float = clampf(float(active_player.get_meta("rating", 70)) / 75.0, 0.85, 1.18)
     ball.apply_central_impulse(direction.normalized() * 15.5 * shooter_factor)
+    _play_sfx("kick")
+    _commentary_event("shot", "يسدد الآن! الكرة تتجه نحو المرمى!")
 
 
 func _pass_ball() -> void:
@@ -702,6 +729,8 @@ func _pass_ball() -> void:
     direction.y = 0.12
     var passer_factor: float = clampf(float(active_player.get_meta("rating", 70)) / 75.0, 0.85, 1.18)
     ball.apply_central_impulse(direction.normalized() * 9.2 * passer_factor)
+    _play_sfx("pass")
+    _commentary_event("pass", "تمريرة متقنة إلى زميله!")
 
 
 func _switch_player() -> void:
@@ -750,11 +779,33 @@ func _finish_match() -> void:
     if match_state != "match":
         return
     match_state = "finished"
+    matches_played += 1
+    daily_matches_done += 1
+    daily_goals_done += home_score
     var reward: int = 1200 if home_score > away_score else (650 if home_score == away_score else 350)
-    coins += reward
+    if active_match_mode == "career":
+        if home_score > away_score:
+            career_wins += 1
+            career_points += 3
+        elif home_score == away_score:
+            career_points += 1
+        if career_points >= 12:
+            career_points -= 12
+            career_division = maxi(1, career_division - 1)
+            reward += 1200
+    elif active_match_mode == "tournament" and home_score > away_score:
+        tournament_progress += 1
+        if tournament_progress >= 3:
+            tournament_progress = 0
+            reward += 3000
+            experience += 300
+            last_pack_text = "تُوّجت بطلاً للكأس!"
     experience += 120 if home_score > away_score else 50
+    coins += reward
     _save_profile()
-    _show_menu("result", {"reward": reward})
+    _play_sfx("final_whistle")
+    _commentary_event("full_time", "صافرة النهاية! انتهت المباراة.")
+    _show_menu("result", {"reward": reward, "mode": active_match_mode})
 
 
 func _show_toast(message: String) -> void:
@@ -783,7 +834,8 @@ func _start_match() -> void:
     _show_menu("")
     _set_game_hud_visible(true)
     _update_clock_ui()
-    _show_toast("بدأت المباراة — تحكم باللاعب الأزرق")
+    _play_sfx("whistle")
+    _commentary_event("kickoff", "صافرة البداية! المباراة انطلقت الآن!")
 
 
 func _pause_match() -> void:
@@ -804,6 +856,34 @@ func _back_to_title() -> void:
     _save_profile()
     _show_menu("home")
     _set_game_hud_visible(false)
+
+
+func _create_audio_players() -> void:
+    commentary_player = AudioStreamPlayer.new()
+    commentary_player.name = "ArabicCommentaryPlayer"
+    add_child(commentary_player)
+    sfx_player = AudioStreamPlayer.new()
+    sfx_player.name = "GameSfxPlayer"
+    add_child(sfx_player)
+
+
+func _play_audio_if_available(player: AudioStreamPlayer, audio_path: String) -> void:
+    if player == null or not ResourceLoader.exists(audio_path):
+        return
+    var stream := load(audio_path) as AudioStream
+    if stream == null:
+        return
+    player.stream = stream
+    player.play()
+
+
+func _commentary_event(event_key: String, fallback_text: String) -> void:
+    _show_toast(fallback_text)
+    _play_audio_if_available(commentary_player, "res://assets/audio/commentary/" + event_key + ".ogg")
+
+
+func _play_sfx(event_key: String) -> void:
+    _play_audio_if_available(sfx_player, "res://assets/audio/sfx/" + event_key + ".ogg")
 
 
 func _create_ui() -> void:
@@ -915,65 +995,185 @@ func _show_menu(page: String, extra: Dictionary = {}) -> void:
 
     var viewport_size: Vector2 = get_viewport().get_visible_rect().size
     menu_overlay = ColorRect.new()
-    menu_overlay.color = Color(0.008, 0.018, 0.025, 0.82)
+    menu_overlay.color = Color(0.006, 0.018, 0.025, 0.88)
     menu_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     menu_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
     ui_root.add_child(menu_overlay)
 
     var panel := PanelContainer.new()
-    panel.position = Vector2((viewport_size.x - 620.0) * 0.5, maxf(28.0, (viewport_size.y - 600.0) * 0.5))
-    panel.size = Vector2(620, minf(630.0, viewport_size.y - 56.0))
+    var panel_width: float = minf(900.0, viewport_size.x - 36.0)
+    var panel_height: float = minf(660.0, viewport_size.y - 28.0)
+    panel.position = Vector2((viewport_size.x - panel_width) * 0.5, (viewport_size.y - panel_height) * 0.5)
+    panel.size = Vector2(panel_width, panel_height)
     var panel_style := StyleBoxFlat.new()
-    panel_style.bg_color = Color(0.025, 0.06, 0.07, 0.97)
-    panel_style.border_color = Color(0.13, 0.62, 0.43)
+    panel_style.bg_color = Color(0.018, 0.045, 0.055, 0.985)
+    panel_style.border_color = Color(0.12, 0.66, 0.44)
     panel_style.set_border_width_all(2)
-    panel_style.set_corner_radius_all(24)
+    panel_style.set_corner_radius_all(22)
     panel.add_theme_stylebox_override("panel", panel_style)
     menu_overlay.add_child(panel)
 
     var content := VBoxContainer.new()
-    content.add_theme_constant_override("separation", 12)
+    content.add_theme_constant_override("separation", 9)
     content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    content.offset_left = 28
-    content.offset_top = 24
-    content.offset_right = -28
-    content.offset_bottom = -24
+    content.offset_left = 24
+    content.offset_top = 18
+    content.offset_right = -24
+    content.offset_bottom = -18
     panel.add_child(content)
 
     var title := Label.new()
-    title.text = "FOOTBALL ARENA"
+    title.text = "FIFA ARABIC"
     title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    title.add_theme_font_size_override("font_size", 34)
-    title.add_theme_color_override("font_color", Color(0.35, 0.95, 0.66))
+    title.add_theme_font_size_override("font_size", 36)
+    title.add_theme_color_override("font_color", Color(0.3, 0.94, 0.63))
     content.add_child(title)
 
     var subtitle := Label.new()
     subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     subtitle.add_theme_font_size_override("font_size", 17)
     subtitle.add_theme_color_override("font_color", Color(0.84, 0.9, 0.88))
     content.add_child(subtitle)
 
-    if page == "home":
-        subtitle.text = "كرة قدم ثلاثية الأبعاد • أوفلاين • طور بناء الفريق"
+    if page == "splash":
+        subtitle.text = "كرة القدم تبدأ من هنا"
+        var spacer := Control.new()
+        spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+        content.add_child(spacer)
+        var loading := Label.new()
+        loading.text = "يتم تحميل النادي والملعب..."
+        loading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        loading.add_theme_font_size_override("font_size", 22)
+        loading.add_theme_color_override("font_color", Color(0.96, 0.82, 0.42))
+        content.add_child(loading)
+        var progress := ProgressBar.new()
+        progress.min_value = 0
+        progress.max_value = 100
+        progress.value = 72
+        progress.custom_minimum_size = Vector2(0, 15)
+        content.add_child(progress)
+        var bottom_spacer := Control.new()
+        bottom_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+        content.add_child(bottom_spacer)
+
+    elif page == "login":
+        subtitle.text = "أهلاً بك — سجّل اسمك للبدء"
+        var spacer := Control.new()
+        spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+        content.add_child(spacer)
+        profile_name_input = LineEdit.new()
+        profile_name_input.placeholder_text = "اكتب اسم اللاعب أو النادي"
+        profile_name_input.text = profile_name if profile_name != "لاعب جديد" else ""
+        profile_name_input.custom_minimum_size = Vector2(0, 58)
+        profile_name_input.add_theme_font_size_override("font_size", 21)
+        profile_name_input.alignment = HORIZONTAL_ALIGNMENT_CENTER
+        content.add_child(profile_name_input)
+        var local_note := Label.new()
+        local_note.text = "الدخول حالياً كضيف ويحفظ تقدمك على هذا الجهاز. حسابات الإنترنت ستضاف عند تشغيل الخادم."
+        local_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        local_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+        local_note.add_theme_font_size_override("font_size", 15)
+        local_note.add_theme_color_override("font_color", Color(0.67, 0.75, 0.73))
+        content.add_child(local_note)
+        _add_menu_button(content, "ابدأ اللعب", _enter_offline_profile, Color(0.08, 0.48, 0.31))
+        var bottom_spacer := Control.new()
+        bottom_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+        content.add_child(bottom_spacer)
+
+    elif page == "home":
+        subtitle.text = "مرحباً %s — ابنِ ناديك ونافس على البطولات" % profile_name
         var profile := Label.new()
-        profile.text = "الرصيد: %d عملة     |     الخبرة: %d XP     |     اللاعبون: %d" % [coins, experience, roster.size()]
+        profile.text = "%d عملة    •    %d XP    •    %d لاعباً    •    الدرجة %d" % [coins, experience, roster.size(), career_division]
         profile.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-        profile.add_theme_font_size_override("font_size", 19)
-        profile.add_theme_color_override("font_color", Color(0.96, 0.82, 0.43))
+        profile.add_theme_font_size_override("font_size", 18)
+        profile.add_theme_color_override("font_color", Color(0.98, 0.82, 0.42))
         content.add_child(profile)
-        _add_menu_button(content, "مباراة سريعة", _start_match, Color(0.08, 0.48, 0.31))
-        _add_menu_button(content, "فريقي واللاعبون", func(): _show_menu("squad"), Color(0.09, 0.26, 0.42))
-        _add_menu_button(content, "البكجات", func(): _show_menu("packs"), Color(0.32, 0.22, 0.52))
-        _add_menu_button(content, "سوق الانتقالات", func(): _show_menu("market"), Color(0.47, 0.29, 0.08))
+        var grid := GridContainer.new()
+        grid.columns = 3
+        grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
+        grid.add_theme_constant_override("h_separation", 10)
+        grid.add_theme_constant_override("v_separation", 10)
+        content.add_child(grid)
+        _add_menu_button(grid, "المسيرة\nCAREER", _show_career, Color(0.08, 0.37, 0.28))
+        _add_menu_button(grid, "فريق الأحلام\nDREAM TEAM", func(): _show_menu("squad"), Color(0.08, 0.26, 0.45))
+        _add_menu_button(grid, "الانتقالات\nTRANSFERS", func(): _show_menu("market"), Color(0.43, 0.27, 0.08))
+        _add_menu_button(grid, "البكجات\nPACKS", func(): _show_menu("packs"), Color(0.32, 0.19, 0.48))
+        _add_menu_button(grid, "البطولات\nTOURNAMENTS", func(): _show_menu("tournaments"), Color(0.34, 0.25, 0.08))
+        _add_menu_button(grid, "المهام اليومية\nMISSIONS", func(): _show_menu("missions"), Color(0.08, 0.34, 0.39))
+        _add_menu_button(grid, "مرافق النادي\nFACILITIES", func(): _show_menu("facilities"), Color(0.24, 0.31, 0.36))
+        _add_menu_button(grid, "مباراة أوفلاين\nOFFLINE", _start_friendly_match, Color(0.08, 0.48, 0.31))
+        _add_menu_button(grid, "اللعب أونلاين\nONLINE", func(): _show_menu("online"), Color(0.23, 0.24, 0.48))
         var note := Label.new()
-        note.text = "الفوز يمنح 1200 عملة • التعادل 650 • الخسارة 350"
+        note.text = "العب واكسب العملات وافتح البكجات وطوّر ناديك"
         note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
         note.add_theme_font_size_override("font_size", 15)
-        note.add_theme_color_override("font_color", Color(0.7, 0.79, 0.76))
+        note.add_theme_color_override("font_color", Color(0.72, 0.8, 0.77))
         content.add_child(note)
+        _add_menu_button(content, "تغيير اللاعب", func(): _show_menu("login"), Color(0.12, 0.2, 0.22))
+
+    elif page == "career":
+        subtitle.text = "مسيرة النادي — تقدّم في الأقسام واجمع نقاط الموسم"
+        var career_label := Label.new()
+        career_label.text = "القسم الحالي: %d\nنقاط الموسم: %d / 12\nالانتصارات: %d\nالمباريات: %d" % [career_division, career_points, career_wins, matches_played]
+        career_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        career_label.add_theme_font_size_override("font_size", 23)
+        career_label.add_theme_color_override("font_color", Color(0.95, 0.91, 0.78))
+        content.add_child(career_label)
+        _add_menu_button(content, "ابدأ مباراة المسيرة", _start_career_match, Color(0.08, 0.48, 0.31))
+        _add_menu_button(content, "رجوع للرئيسية", func(): _show_menu("home"), Color(0.12, 0.2, 0.22))
+
+    elif page == "tournaments":
+        subtitle.text = "كأس النادي — اربح 3 مباريات متتالية لتحصل على الجائزة"
+        var cup_label := Label.new()
+        cup_label.text = "تقدم البطولة: %d / 3\nجائزة البطل: 3,000 عملة + 300 XP" % tournament_progress
+        cup_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        cup_label.add_theme_font_size_override("font_size", 22)
+        cup_label.add_theme_color_override("font_color", Color(0.98, 0.82, 0.42))
+        content.add_child(cup_label)
+        _add_menu_button(content, "العب مباراة الكأس", _start_tournament_match, Color(0.42, 0.29, 0.08))
+        _add_menu_button(content, "رجوع للرئيسية", func(): _show_menu("home"), Color(0.12, 0.2, 0.22))
+
+    elif page == "missions":
+        subtitle.text = "أنجز تحديات اليوم واجمع العملات المجانية"
+        var missions_label := Label.new()
+        missions_label.text = "العب مباراة واحدة: %s\nسجّل هدفين: %s\n\nالتقدم اليوم: %d مباراة • %d أهداف\nالمكافأة: 500 عملة" % ["مكتمل" if daily_matches_done >= 1 else "لم يكتمل", "مكتمل" if daily_goals_done >= 2 else "لم يكتمل", daily_matches_done, daily_goals_done]
+        missions_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        missions_label.add_theme_font_size_override("font_size", 19)
+        missions_label.add_theme_color_override("font_color", Color(0.94, 0.93, 0.84))
+        content.add_child(missions_label)
+        _add_menu_button(content, "استلام مكافأة المهام", _claim_daily_rewards, Color(0.08, 0.48, 0.31))
+        _add_menu_button(content, "العب مباراة لإكمال المهام", _start_daily_match, Color(0.11, 0.31, 0.39))
+        _add_menu_button(content, "رجوع للرئيسية", func(): _show_menu("home"), Color(0.12, 0.2, 0.22))
+
+    elif page == "facilities":
+        subtitle.text = "طوّر ملعبك وأكاديميتك ومركز التدريب"
+        var facilities_label := Label.new()
+        facilities_label.text = "الملعب: المستوى %d\nالأكاديمية: المستوى %d\nمركز التدريب: المستوى %d\n\nتكلفة التطوير: 600 × المستوى" % [int(facilities.get("stadium", 1)), int(facilities.get("academy", 1)), int(facilities.get("training", 1))]
+        facilities_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        facilities_label.add_theme_font_size_override("font_size", 19)
+        facilities_label.add_theme_color_override("font_color", Color(0.94, 0.93, 0.84))
+        content.add_child(facilities_label)
+        _add_menu_button(content, "تطوير الملعب", func(): _upgrade_facility("stadium"), Color(0.08, 0.37, 0.28))
+        _add_menu_button(content, "تطوير الأكاديمية", func(): _upgrade_facility("academy"), Color(0.08, 0.29, 0.42))
+        _add_menu_button(content, "تطوير مركز التدريب", func(): _upgrade_facility("training"), Color(0.42, 0.29, 0.08))
+        _add_menu_button(content, "رجوع للرئيسية", func(): _show_menu("home"), Color(0.12, 0.2, 0.22))
+
+    elif page == "online":
+        subtitle.text = "مباريات الأصدقاء والإنترنت"
+        var online_label := Label.new()
+        online_label.text = "اللعب الجماعي المباشر غير مفعّل في هذه النسخة.\nيحتاج إلى خادم ألعاب دائم وحسابات ومزامنة آمنة.\n\nسنستخدم Nakama المفتوح المصدر وGodot Multiplayer عند تجهيز الاستضافة."
+        online_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        online_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+        online_label.add_theme_font_size_override("font_size", 19)
+        online_label.add_theme_color_override("font_color", Color(0.94, 0.93, 0.84))
+        content.add_child(online_label)
+        _add_menu_button(content, "العب أوفلاين الآن", _start_friendly_match, Color(0.08, 0.48, 0.31))
+        _add_menu_button(content, "رجوع للرئيسية", func(): _show_menu("home"), Color(0.12, 0.2, 0.22))
 
     elif page == "squad":
-        subtitle.text = "قائمة فريقك — لاعبين خياليين بتقييمات قابلة للتطوير"
+        subtitle.text = "فريق الأحلام — لاعبين خياليين وتقييمات قابلة للتطوير"
         var listing := Label.new()
         listing.text = _roster_summary()
         listing.add_theme_font_size_override("font_size", 15)
@@ -994,7 +1194,7 @@ func _show_menu(page: String, extra: Dictionary = {}) -> void:
         balance.add_theme_color_override("font_color", Color(0.98, 0.82, 0.42))
         content.add_child(balance)
         var pack_description := Label.new()
-        pack_description.text = "العادي: 300 عملة — تقييم متوقع 63 إلى 82\nالنادر: 900 عملة — تقييم متوقع 76 إلى 94\n\nآخر بطاقة: " + last_pack_text
+        pack_description.text = "العادي: 300 عملة — تقييم 63 إلى 82\nالنادر: 900 عملة — تقييم 76 إلى 94\n\nآخر بطاقة: " + last_pack_text
         pack_description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
         pack_description.add_theme_font_size_override("font_size", 17)
         pack_description.add_theme_color_override("font_color", Color(0.87, 0.91, 0.87))
@@ -1028,21 +1228,102 @@ func _show_menu(page: String, extra: Dictionary = {}) -> void:
         _add_menu_button(content, "الخروج للقائمة", _back_to_title, Color(0.34, 0.19, 0.17))
 
     elif page == "result":
-        subtitle.text = "انتهت المباراة: %d - %d" % [home_score, away_score]
+        var outcome: String = "فوز رائع!" if home_score > away_score else ("تعادل" if home_score == away_score else "حاول مرة أخرى")
+        subtitle.text = "%s — %d : %d" % [outcome, home_score, away_score]
         var reward_label := Label.new()
-        reward_label.text = "حصلت على %d عملة\nرصيدك الآن: %d" % [int(extra.get("reward", 0)), coins]
+        reward_label.text = "حصلت على %d عملة\nرصيدك الآن: %d\nالخبرة: %d XP" % [int(extra.get("reward", 0)), coins, experience]
         reward_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-        reward_label.add_theme_font_size_override("font_size", 25)
+        reward_label.add_theme_font_size_override("font_size", 24)
         reward_label.add_theme_color_override("font_color", Color(0.98, 0.83, 0.44))
         content.add_child(reward_label)
+        if active_match_mode == "career":
+            var career_result := Label.new()
+            career_result.text = "نقاط المسيرة: %d / 12 — القسم %d" % [career_points, career_division]
+            career_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+            content.add_child(career_result)
+        elif active_match_mode == "tournament":
+            var tournament_result := Label.new()
+            tournament_result.text = "تقدم الكأس: %d / 3" % tournament_progress
+            tournament_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+            content.add_child(tournament_result)
         _add_menu_button(content, "إعادة المباراة", _start_match, Color(0.08, 0.48, 0.31))
-        _add_menu_button(content, "الفريق والبكجات", func(): _show_menu("home"), Color(0.09, 0.26, 0.42))
+        _add_menu_button(content, "العودة للرئيسية", func(): _show_menu("home"), Color(0.09, 0.26, 0.42))
 
 
-func _add_menu_button(parent: VBoxContainer, caption: String, action: Callable, color: Color) -> void:
+func _enter_offline_profile() -> void:
+    if profile_name_input != null:
+        var entered: String = profile_name_input.text.strip_edges()
+        if not entered.is_empty():
+            profile_name = entered.substr(0, 20)
+    if profile_name.strip_edges().is_empty():
+        profile_name = "لاعب جديد"
+    _save_profile()
+    _show_menu("home")
+
+
+func _show_career() -> void:
+    _show_menu("career")
+
+
+func _start_friendly_match() -> void:
+    active_match_mode = "friendly"
+    _start_match()
+
+
+func _start_career_match() -> void:
+    active_match_mode = "career"
+    _start_match()
+
+
+func _start_tournament_match() -> void:
+    active_match_mode = "tournament"
+    _start_match()
+
+
+func _start_daily_match() -> void:
+    active_match_mode = "daily"
+    _start_match()
+
+
+func _upgrade_facility(facility_key: String) -> void:
+    if not facilities.has(facility_key):
+        return
+    var current_level: int = int(facilities[facility_key])
+    if current_level >= 10:
+        last_pack_text = "وصل المرفق إلى الحد الأعلى"
+        _show_menu("facilities")
+        return
+    var cost: int = 600 * current_level
+    if coins < cost:
+        last_pack_text = "تحتاج %d عملة للتطوير" % cost
+        _show_menu("facilities")
+        return
+    coins -= cost
+    facilities[facility_key] = current_level + 1
+    experience += 35
+    last_pack_text = "تم تطوير المرفق بنجاح"
+    _save_profile()
+    _show_menu("facilities")
+
+
+func _claim_daily_rewards() -> void:
+    if daily_reward_claimed:
+        last_pack_text = "استلمت مكافأة اليوم بالفعل"
+    elif daily_matches_done >= 1 and daily_goals_done >= 2:
+        coins += 500
+        experience += 50
+        daily_reward_claimed = true
+        last_pack_text = "تم استلام مكافأة المهام اليومية"
+        _save_profile()
+    else:
+        last_pack_text = "أكمل مباراة وسجّل هدفين لاستلام المكافأة"
+    _show_menu("missions")
+
+
+func _add_menu_button(parent: Container, caption: String, action: Callable, color: Color) -> void:
     var button := Button.new()
     button.text = caption
-    button.custom_minimum_size = Vector2(0, 54)
+    button.custom_minimum_size = Vector2(0, 76 if parent is GridContainer else 52)
     button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     button.focus_mode = Control.FOCUS_NONE
     button.add_theme_font_size_override("font_size", 19)
@@ -1212,6 +1493,19 @@ func _load_profile() -> void:
     if error == OK:
         coins = int(config.get_value("profile", "coins", 2000))
         experience = int(config.get_value("profile", "experience", 0))
+        profile_name = str(config.get_value("profile", "profile_name", "لاعب جديد"))
+        career_wins = int(config.get_value("profile", "career_wins", 0))
+        career_points = int(config.get_value("profile", "career_points", 0))
+        career_division = int(config.get_value("profile", "career_division", 8))
+        matches_played = int(config.get_value("profile", "matches_played", 0))
+        tournament_progress = int(config.get_value("profile", "tournament_progress", 0))
+        daily_date = str(config.get_value("profile", "daily_date", ""))
+        daily_matches_done = int(config.get_value("profile", "daily_matches_done", 0))
+        daily_goals_done = int(config.get_value("profile", "daily_goals_done", 0))
+        daily_reward_claimed = bool(config.get_value("profile", "daily_reward_claimed", false))
+        var saved_facilities: Variant = config.get_value("profile", "facilities", facilities)
+        if saved_facilities is Dictionary:
+            facilities = saved_facilities
         var saved_roster: Variant = config.get_value("profile", "roster", [])
         if saved_roster is Array:
             roster = saved_roster
@@ -1227,6 +1521,13 @@ func _load_profile() -> void:
                 initial_player["position"] = "وسط" if index < 12 else "هجوم"
             roster.append(initial_player)
         _save_profile()
+    var today: String = Time.get_date_string_from_system()
+    if daily_date != today:
+        daily_date = today
+        daily_matches_done = 0
+        daily_goals_done = 0
+        daily_reward_claimed = false
+        _save_profile()
     _refresh_market()
 
 
@@ -1234,5 +1535,16 @@ func _save_profile() -> void:
     var config := ConfigFile.new()
     config.set_value("profile", "coins", coins)
     config.set_value("profile", "experience", experience)
+    config.set_value("profile", "profile_name", profile_name)
+    config.set_value("profile", "career_wins", career_wins)
+    config.set_value("profile", "career_points", career_points)
+    config.set_value("profile", "career_division", career_division)
+    config.set_value("profile", "matches_played", matches_played)
+    config.set_value("profile", "tournament_progress", tournament_progress)
+    config.set_value("profile", "daily_date", daily_date)
+    config.set_value("profile", "daily_matches_done", daily_matches_done)
+    config.set_value("profile", "daily_goals_done", daily_goals_done)
+    config.set_value("profile", "daily_reward_claimed", daily_reward_claimed)
+    config.set_value("profile", "facilities", facilities)
     config.set_value("profile", "roster", roster)
     config.save("user://profile.cfg")
