@@ -105,20 +105,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          godot --headless --path . --export-debug "Android" build/football-arena-android.apk
-          test -s build/football-arena-android.apk
+          godot --headless --path . --export-debug "Android" build/fifa-arabic-android.apk
+          test -s build/fifa-arabic-android.apk
 
           # Verify that Android can authenticate the generated APK before uploading it.
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort | tail -n 1)"
           ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort | tail -n 1)"
           test -n "$APKSIGNER"
           test -n "$ZIPALIGN"
-          "$ZIPALIGN" -c -v 4 build/football-arena-android.apk
-          "$APKSIGNER" verify --verbose --print-certs build/football-arena-android.apk
+          "$ZIPALIGN" -c -v 4 build/fifa-arabic-android.apk
+          "$APKSIGNER" verify --verbose --print-certs build/fifa-arabic-android.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: football-arena-android
-          path: build/football-arena-android.apk
+          name: fifa-arabic-android
+          path: build/fifa-arabic-android.apk
           if-no-files-found: error
