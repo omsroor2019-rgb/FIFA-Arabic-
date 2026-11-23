@@ -58,13 +58,29 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
 
+          # Create a temporary DEBUG signing key for installable test APKs.
+          # This key is only for development/testing; do not use it for Google Play release builds.
+          if [[ ! -s /root/debug.keystore ]]; then
+            keytool -genkeypair -v \
+              -keystore /root/debug.keystore \
+              -storetype JKS \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
           # Verify the components before trying to export.
           test -x "$JAVA_HOME/bin/java"
+          test -x "$JAVA_HOME/bin/keytool"
           test -x "$ANDROID_HOME/platform-tools/adb"
           test -s "$TEMPLATE_DIR/android_debug.apk"
           test -s "$TEMPLATE_DIR/android_release.apk"
+          test -s /root/debug.keystore
           godot --version
           java -version
+          keytool -list -keystore /root/debug.keystore -storepass android -alias androiddebugkey
 
           # Update SDK packages to the versions documented for Godot 4.7.
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
@@ -76,11 +92,28 @@ jobs:
       - name: Run scene smoke test
         run: godot --headless --path . --quit-after 8
 
-      - name: Export Android APK
+      - name: Verify Android texture compression setting
         run: |
+          grep -F 'textures/vram_compression/import_etc2_astc=true' project.godot
+
+      - name: Export and verify signed Android APK
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          set -euo pipefail
           mkdir -p build
           godot --headless --path . --export-debug "Android" build/football-arena-android.apk
           test -s build/football-arena-android.apk
+
+          # Verify that Android can authenticate the generated APK before uploading it.
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort | tail -n 1)"
+          test -n "$APKSIGNER"
+          test -n "$ZIPALIGN"
+          "$ZIPALIGN" -c -v 4 build/football-arena-android.apk
+          "$APKSIGNER" verify --verbose --print-certs build/football-arena-android.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
