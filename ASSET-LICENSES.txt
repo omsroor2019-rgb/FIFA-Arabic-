@@ -1,4 +1,8 @@
-Asset provenance:
-- Player meshes, pitch, goals, stands, UI and materials in this prototype are generated procedurally in main.gd using built-in Godot primitives.
-- No third-party player photos, club crests, team marks, stadium photographs, audio, or commercial asset packs are included.
-- Godot Engine license: MIT. https://godotengine.org/license/
+Asset licensing and provenance notes:
+- Current generated stadium, pitch, ball, UI and placeholder players are built in code from Godot primitives.
+- No third-party downloadable 3D/audio assets have been bundled in this revision; candidate sources and license conditions are documented in ASSET-SOURCES-AR.md.
+- Candidate assets must be downloaded with their own accompanying license files and recorded before import.
+- Godot Engine: MIT License (https://godotengine.org/license/).
+- Quaternius assets may be CC0 or QAL; inspect the exact pack license. QAL permits incorporation in products but forbids standalone redistribution of asset files.
+- For Freesound use only CC0 or CC-BY clips suitable for the intended release; exclude CC-BY-NC from commercial builds.
+- Keep an attribution file for any CC-BY item included.
